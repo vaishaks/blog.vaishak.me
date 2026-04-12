@@ -24,3 +24,9 @@ pnpm-debug.log*
 .cache
 .astro
 .zed/
+
+# git worktrees
+.worktrees/
+
+# brainstorm sessions
+.superpowers/
