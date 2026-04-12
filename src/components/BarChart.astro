@@ -8,7 +8,7 @@ interface Dataset {
 interface Props {
 	labels: (string | string[])[];
 	datasets: Dataset[];
-	projected?: number;
+	projected?: number | null;
 	yLabel?: string;
 	height?: number;
 }
@@ -25,7 +25,7 @@ const configJson = JSON.stringify({ labels, datasets, projected, yLabel });
 
 <script>
 	import Chart from "chart.js/auto";
-	import type { ChartDataset, Plugin } from "chart.js";
+	import type { BarElement, ChartDataset, Plugin } from "chart.js";
 
 	interface DatasetConfig {
 		label: string;
@@ -53,9 +53,11 @@ const configJson = JSON.stringify({ labels, datasets, projected, yLabel });
 			id: "projected-bar",
 			afterDatasetsDraw(chart) {
 				const meta = chart.getDatasetMeta(0);
-				const el = meta.data[index] as any;
+				const el = meta.data[index] as BarElement | undefined;
 				if (!el) return;
-				const { x, y, width, base } = el;
+				const { x, y, width, base } = el.getProps(["x", "y", "width", "base"], true) as {
+					x: number; y: number; width: number; base: number;
+				};
 				const ctx = chart.ctx;
 				ctx.save();
 				ctx.setLineDash([5, 4]);
@@ -116,7 +118,8 @@ const configJson = JSON.stringify({ labels, datasets, projected, yLabel });
 						callbacks: {
 							label: (ctx) => {
 								const v = ctx.parsed.y;
-								return `${ctx.dataset.label}: ${v === 0 ? "projected" : v + " " + yLabel}`;
+								const isProjected = projected !== null && ctx.dataIndex === projected;
+								return `${ctx.dataset.label}: ${isProjected ? "projected" : v + " " + yLabel}`;
 							},
 						},
 					},
@@ -137,17 +140,36 @@ const configJson = JSON.stringify({ labels, datasets, projected, yLabel });
 			plugins,
 		});
 
-		new MutationObserver(() => {
+		const observer = new MutationObserver(() => {
 			const m = muted();
 			const g = grid();
-			chart.options.plugins!.legend!.labels!.color = m;
-			(chart.options.scales!.x!.ticks as any).color = m;
-			(chart.options.scales!.x!.grid as any).color = g;
-			(chart.options.scales!.y!.title as any).color = m;
-			(chart.options.scales!.y!.ticks as any).color = m;
-			(chart.options.scales!.y!.grid as any).color = g;
+			if (chart.options.plugins?.legend?.labels) {
+				chart.options.plugins.legend.labels.color = m;
+			}
+			const xScale = chart.options.scales?.x;
+			const yScale = chart.options.scales?.y;
+			if (xScale) {
+				if (!xScale.ticks) xScale.ticks = {};
+				if (!xScale.grid) xScale.grid = {};
+				xScale.ticks.color = m;
+				xScale.grid.color = g;
+			}
+			if (yScale) {
+				if (!yScale.ticks) yScale.ticks = {};
+				if (!yScale.grid) yScale.grid = {};
+				if (!yScale.title) yScale.title = { display: true, text: yLabel };
+				yScale.ticks.color = m;
+				yScale.grid.color = g;
+				yScale.title.color = m;
+			}
 			chart.update("none");
-		}).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+		});
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+		document.addEventListener("astro:before-swap", () => {
+			observer.disconnect();
+			chart.destroy();
+		}, { once: true });
 	}
 
 	document.querySelectorAll<HTMLCanvasElement>("canvas[data-barchart]").forEach(initChart);
